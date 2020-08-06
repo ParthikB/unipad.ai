@@ -1,89 +1,107 @@
 import cv2
-
-CAM_IDX = 1
+import imutils
+from pynput.keyboard import Key, Controller
+from PARAMETERS import *
 
 RED    = (0, 0, 255)
 BLUE   = (255, 0, 0,)
 GREEN  = (0, 255, 0)
 YELLOW = (0, 255, 255)
-ALPHA  = 0.25
-FREE_RAD_FACTOR = 7
 
 
-def show_direction(frame, coords):
-    x, y = coords
+class Box:
+    def __init__(self, coords, box_id, action=None):
+        self.coords = coords
+        self.id     = box_id
+        self.action = action
 
-    h, w, _ = frame.shape
+def define_boxes():
 
-    W, H       = (w//2, h//2)
-    FREE_RAD   = h//FREE_RAD_FACTOR
-    rr         = W + FREE_RAD
-    lr         = W - FREE_RAD
-    ur         = H - FREE_RAD
-    dr         = H + FREE_RAD
+    cam = cv2.VideoCapture(CAM_IDX)
 
-    if   x <= lr and y <= ur: return 1 # NW
-    elif x <= rr and y <= ur: return 2 # N
-    elif x <= w  and y <= ur: return 3 # NE
-    elif x <= lr and y <= dr: return 4 # W
-    elif x <= rr and y <= dr: return 5 # Null
-    elif x <= w  and y <= dr: return 6 # E
-    elif x <= lr and y <= h:  return 7 # SW
-    elif x <= rr and y <= h:  return 8 # S
-    elif x <= w  and y <= h:  return 9 # SE
-    else: return 5 # Null
+    all_boxes = []
+    box_id = 0
 
+    while True:
+            # show the output frame
+        _, frame = cam.read()
+        frame = imutils.resize(frame, width=400)
+        frame = cv2.flip(frame, 1)
 
-def draw_point(frame, coords, radius=2, color=(255, 255, 255)):
-    cv2.circle(frame, coords, radius, color, -1)
+        
+        for box in all_boxes:
+            (x, y, w, h) = box.coords
+            frame = cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
-def draw_rect(frame, start_coord, end_coord, color=(255, 255, 255)):
-    cv2.rectangle(frame, start_coord, end_coord, color, -1)     
+        cv2.imshow("Frame", frame)
+        
+        key = cv2.waitKey(1) & 0xFF
+        # if the 's' key is selected, we are going to "select" a bounding
+        # box to track
+        if key == ord("s"):
 
-def show(frame, direction):
+            # select the bounding box of the object we want to track (make
+            # sure you press ENTER or SPACE after selecting the ROI)
+            initBB = cv2.selectROI("Frame", frame, fromCenter=False,
+                showCrosshair=True)
+            # all_boxes.append(initBB)
 
+            action = input('Action :')
+            all_boxes.append(Box(initBB, box_id, action))
+            box_id += 1
+            
+            print(all_boxes)
+            # print("Selected area coordinates :", initBB)
+            print()
+        
+        
+        # if the `q` key was pressed, break from the loop
+        elif key == ord("q"):
+            break
+
+            cv2.destroyAllWindows()
+
+    return all_boxes
+
+def select_box(frame, cur_coords, all_boxes):
+    # Returns the Box in which cur_coordinates lie (if any)
+    xx, yy = cur_coords
+    for box in all_boxes:
+        (x, y, w, h) = box.coords
+        if xx < x+w and xx > x and yy < y+h and yy > y:
+            return box
+
+def take_action(selected_box, last_action, mode):
+    action = None
+    if selected_box :
+        action = selected_box.action
+
+    if action:
+        if ACTION_MODE == 0 and action != last_action:
+            print('Tapping :', action)
+            keyboard = Controller()
+            keyboard.type(action)
+            # keyboard.press(action)
+            # keyboard.release(action)
+        if ACTION_MODE == 1:
+            print('Holding :', action)
+            keyboard = Controller()
+            keyboard.type(action)
+            # keyboard.press(action)
+            # keyboard.release(action)
+    return action
+
+def show_boxes(frame, selected_box, all_boxes):
     overlay = frame.copy()
-
     h, w, _ = frame.shape
+    W, H    = (w//2, h//2)
 
-    W, H       = (w//2, h//2)
-    FREE_RAD   = h//FREE_RAD_FACTOR
-    RR         = W + FREE_RAD
-    LR         = W - FREE_RAD
-    UR         = H - FREE_RAD
-    DR         = H + FREE_RAD
-
-    TL = (LR, UR)
-    TR = (RR, UR)
-    BL = (LR, DR)
-    BR = (RR, DR)
-
-    area_c = [BLUE] *9
-    area_c[direction-1] = GREEN
-
-    # CENTER POINT
-    draw_point(frame, (W, H), color=YELLOW)
-    # cv2.circle(frame, (W, H), 2, (0, 255, 255), -1)
-
-    # FREE AREA
-    cv2.circle(frame, (W, H), FREE_RAD, (0, 255, 255))
-
-    draw_point(frame, TL, color=GREEN) # top left
-    draw_point(frame, TR, color=GREEN) # top right
-    draw_point(frame, BL, color=GREEN) # bottom left
-    draw_point(frame, BR, color=GREEN) # bottom right
-
-    draw_rect(frame, (0, 0), TL,        color=area_c[0])
-    draw_rect(frame, (LR, 0), TR,       color=area_c[1])
-    draw_rect(frame, (RR, 0), (w, UR),  color=area_c[2])
-
-    draw_rect(frame, (0, UR), (LR, DR), color=area_c[3])
-    draw_rect(frame, (RR, UR), (w, DR), color=area_c[5])
-
-
-    draw_rect(frame, (0, DR), (LR, h),  color=area_c[6])
-    draw_rect(frame, (LR, DR), (RR, h), color=area_c[7])
-    draw_rect(frame, (RR, DR), (w, h),  color=area_c[8])
-
+    for box in all_boxes:
+        color = BLUE        
+        if selected_box:
+            if selected_box.id == box.id:
+                color = GREEN 
+        (x, y, w, h) = box.coords
+        frame = cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
 
     return cv2.addWeighted(overlay, 1-ALPHA, frame, ALPHA, 0)
