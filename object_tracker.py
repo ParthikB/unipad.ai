@@ -5,9 +5,8 @@ import cv2
 import argparse
 import imutils
 import time
-from game import game_utils
+from PARAMETERS import *
 from __helper__ import *
-
 
 
 ap = argparse.ArgumentParser()
@@ -17,8 +16,14 @@ ap.add_argument("-c", "--confidence", type=float, default=0.5, help="Minimum pro
 args = vars(ap.parse_args())
 
 
+
 ct = CentroidTracker()
 (H, W) = (None, None)
+
+
+print("[INFO] Define boxes...")
+all_boxes = define_boxes()
+print(all_boxes)
 
 print("[INFO] loading model...")
 net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
@@ -27,7 +32,7 @@ print("[INFO] starting video stream...")
 vs = VideoStream(src=CAM_IDX).start()
 time.sleep(2.0)
 
-centre_coords = []
+last_action = None
 
 while True:
     frame = vs.read()
@@ -42,12 +47,10 @@ while True:
     detections = net.forward()
     rects = []
     direction = 5
-    # print(detections)
 
     for i in range(0, detections.shape[2]):
         if detections[0, 0, i, 2] > args['confidence']:
             box = detections[0, 0, i, 3:7] * np.array([W, H, W, H])
-            # print()
             rects.append(box.astype("int"))
 
             (startX, startY, endX, endY) = box.astype("int")
@@ -55,28 +58,25 @@ while True:
 
             diagnol = pow((startX-endX)**2 + (startY-endY)**2, 0.5)
             area    = pow(diagnol, 2)
-            # print(detections[0, 0, i, 3:7], area)
-
-            centre_coords.append(((startX+endX)//2, (startY+endY)//2))
-            centre_coords = centre_coords[-2:]
             
-####
-            direction = show_direction(frame, centre_coords[-1])
-            game_utils.move_uni(direction)
+####        
+            centre_coords = (startX+endX)//2, (startY+endY)//2
+
+            selected_box = select_box(frame, centre_coords, all_boxes)
+            last_action  = take_action(selected_box, last_action, mode=ACTION_MODE)
+
+    frame = show_boxes(frame, selected_box, all_boxes)
+
 ####
     
     objects = ct.update(rects)
-    # print(len(objects), objects)
 
     for (objectID, centroid) in objects.items():
         text = "ID {}".format(objectID)
         cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
-####
-    import random
-    frame = show(frame, direction)
-    print(direction, random.random())
-####
+
+
     cv2.imshow("Frame", frame)
     key = cv2.waitKey(1) & 0xFF
 
